@@ -12,7 +12,9 @@ reko_client = boto3.client('rekognition',
                            region_name='us-east-1')
 
 # set target class
-target_class = 'Person'
+# target_class = 'Person'
+glizzy = {"Hot Dog", "Hotdog", "Hot-Dog", "Sausage"}
+
 
 # load video (camera capture)
 
@@ -28,6 +30,7 @@ if not video_capture.isOpened():
 last_check = 0
 check_interval = 2  # seconds between Rekognition calls to save API costs
 
+
 ret = True
 while ret:
     ret, frame = video_capture.read()
@@ -38,7 +41,7 @@ while ret:
         break
 
     # open window
-    cv2.imshow('Live Webcam Feed', frame)
+    cv2.imshow('Live webcam', frame)
     
     # Run every n seconds
     if time.time() - last_check >= check_interval:
@@ -49,25 +52,37 @@ while ret:
             Image={'Bytes': image_bytes},
             MinConfidence=95) # this is the confidence threshold
 
-        print("Objects detected:", [label['Name'] for label in res['Labels']])
-        last_check = time.time()
+        # all objects (temporary)
+        detected = [label['Name'] for label in res['Labels']]                
+        print("Objects:", detected)  
+        
+        # checking for glizzy
+        for label in res['Labels']:
+            
+            if label['Name'] in glizzy: # if glizzy present
+                print("glizzy detected")
+                
+                # bounding boxes
+                w, h, _ =  frame.shape
+                for i in label["Instances"]:
+                    bbox = i['BoundingBox']
+                    x1 = int(bbox['Left'] * w)
+                    y1 = int(bbox['Top'] * h)
+                    x2 = int((bbox['Left'] + bbox['Width']) * w)
+                    y2 = int((bbox['Top'] + bbox['Height']) * h)
+
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(frame, "glizzy", (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            last_check = time.time()
+        
+        # display with boxes
+        cv2.imshow('Live webcam', frame)
 
     # exit if 'q' is pressed
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-
-
-    # # convert to jpg
-    # _, buffer = cv2.imencode('.jpg', frame) 
-
-    # # convert buffer to bytes
-    # image_bytes = buffer.tobytes()
-    # break
-
-    # # detect object
-    # res = reko_client.detect_labels(
-    #     Image={'Bytes': image_bytes},
-    #     MinConfidence=50)
     
 video_capture.release()
 cv2.destroyAllWindows()
