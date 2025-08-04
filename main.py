@@ -20,18 +20,18 @@ glizzy = {"Hot Dog", "Hotdog", "Hot-Dog", "Sausage"}
 video_source = 0  
 video_capture = cv2.VideoCapture(video_source)
 
-print("Starting...")
-
 # check if video capture is opened
 if not video_capture.isOpened():
     print("Error: Could not open video source.")
     exit()
 
-
+# NOTE: TRY TO FIND INTERVAL / REFRESH RATE THAT RESULTS IN SMOOTHEST
 last_check = 0
-check_interval = 0.2  # tick interval (s). SENDS CALLS TO AWS
-
-cache_boxes = []
+check_interval = 1.5  # tick interval (s). SENDS CALLS TO AWS
+tracker = None
+tracking = False
+last_seen = 0
+max_no_refresh = 3  # seconds before giving up if no AWS detection
 
 print("CAMERA READY. Press ESC to exit.")
 ret = True
@@ -42,16 +42,23 @@ while ret:
         break
 
     # open window
-    cv2.imshow('Live webcam', frame)
+    # cv2.imshow('Live webcam', frame)
     
     w, h, _ =  frame.shape
 
-    # draw cached boxes so they're always visible
-    for (x1, y1, x2, y2) in cache_boxes:
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(frame, "glizzy", (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    
+    if tracking and tracker is not None:
+        success, box = tracker.update(frame)
+        if success:
+            x, y, w, h = [int(v) for v in box]
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            # labels
+            cv2.putText(frame, "glizzy", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        else:
+            tracking = False
+            tracker = None
+
+ 
     # Run every n seconds
     if time.time() - last_check >= check_interval:
         _, buffer = cv2.imencode('.jpg', frame)
@@ -66,27 +73,38 @@ while ret:
         # print("Objects:", detected)  
         
         boxes = []
-        # checking for glizzy
+        # checking for if glizzy present
         for label in res['Labels']:
-            if label['Name'] in glizzy: # if glizzy present
-                print("glizzy detected")
+            if label['Name'] in glizzy and label:          
+                bbox = label['Instances'][0]['BoundingBox']
+                x1 = int(bbox['Left'] * w)
+                y1 = int(bbox['Top'] * h)
+                bw = int(bbox['Width'] * w)
+                bh = int(bbox['Height'] * h)
                 
-                # bounding boxes
-                for i in label["Instances"]:
-                    bbox = i['BoundingBox']
-                    x1 = int(bbox['Left'] * w)
-                    y1 = int(bbox['Top'] * h)
-                    x2 = int((bbox['Left'] + bbox['Width']) * w)
-                    y2 = int((bbox['Top'] + bbox['Height']) * h)
-                    boxes.append((x1, y1, x2, y2))
+                if not tracking:
+                    # only initialize/reinit if not tracking
+                    tracker = cv2.legacy.TrackerKCF_create()
+                    tracker.init(frame, (x1, y1, bw, bh))
+                    tracking = True
+                    print("glizzy detected")
+                
+                last_seen = time.time()
+                break
 
-            cache_boxes = boxes
-            last_check = time.time()
+        # cache_boxes = boxes
+        last_check = time.time()
         
-        # display with boxes
-        cv2.imshow('Live webcam', frame)
+    # If we've gone too long without AWS confirming, stop tracking
+    if tracking and (time.time() - last_seen > max_no_refresh):
+        tracking = False
+        tracker = None
+        print("no more glizzyt")
+    
+    # display window
+    cv2.imshow('Live webcam', frame)
 
-    # exit if 'q' is pressed
+    # exit if 'esc' is pressed
     if cv2.waitKey(1) & 0xFF == 27: # ESC key
         print("Exiting...")
         break
