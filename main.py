@@ -1,5 +1,5 @@
-# packages installed: opencv-python, boto3
-# pip install (package name) 
+# packages installed: opencv-python, boto3, opencv-contrib-python
+# pip install <package name> 
 import cv2
 import boto3
 import time
@@ -27,11 +27,12 @@ if not video_capture.isOpened():
 
 # NOTE: TRY TO FIND INTERVAL / REFRESH RATE THAT RESULTS IN SMOOTHEST
 last_check = 0
-check_interval = 1.5  # tick interval (s). SENDS CALLS TO AWS
+check_interval = 1  # tick interval (s). SENDS CALLS TO AWS
 tracker = None
 tracking = False
 last_seen = 0
-max_no_refresh = 3  # seconds before giving up if no AWS detection
+misses = 0
+max_no_refresh = 0.5  # seconds before giving up if no AWS detection
 
 print("CAMERA READY. Press ESC to exit.")
 ret = True
@@ -52,7 +53,7 @@ while ret:
             x, y, w, h = [int(v) for v in box]
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
             # labels
-            cv2.putText(frame, "glizzy", (x, y - 10),
+            cv2.putText(frame, "glizzy", (x, y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         else:
             tracking = False
@@ -66,40 +67,51 @@ while ret:
 
         res = reko_client.detect_labels(
             Image = {'Bytes': image_bytes},
-            MinConfidence = 95) # this is the confidence threshold
+            MinConfidence = 90) # this is the confidence threshold
 
         # all objects (temporary)
         # detected = [label['Name'] for label in res['Labels']]                
         # print("Objects:", detected)  
         
         boxes = []
+        glizzy_detected = False
         # checking for if glizzy present
         for label in res['Labels']:
-            if label['Name'] in glizzy and label:          
-                bbox = label['Instances'][0]['BoundingBox']
-                x1 = int(bbox['Left'] * w)
-                y1 = int(bbox['Top'] * h)
-                bw = int(bbox['Width'] * w)
-                bh = int(bbox['Height'] * h)
-                
-                if not tracking:
-                    # only initialize/reinit if not tracking
-                    tracker = cv2.legacy.TrackerKCF_create()
-                    tracker.init(frame, (x1, y1, bw, bh))
-                    tracking = True
-                    print("glizzy detected")
-                
-                last_seen = time.time()
-                break
-
+            if label['Name'] in glizzy:
+                if label['Instances']:          
+                    bbox = label['Instances'][0]['BoundingBox']
+                    x1 = int(bbox['Left'] * w)
+                    y1 = int(bbox['Top'] * h)
+                    bw = int(bbox['Width'] * w)
+                    bh = int(bbox['Height'] * h)
+                    
+                    if not tracking:
+                        # only initialize/reinit if not tracking
+                        tracker = cv2.legacy.TrackerKCF_create()
+                        tracker.init(frame, (x1, y1, bw, bh))
+                        tracking = True
+                        print("glizzy detected")
+                    
+                    last_seen = time.time()
+                    misses = 0
+                    glizzy_detected = True
+                    break
+        
+        if not glizzy_detected:
+            misses += 1
+            if misses > 3:
+                tracking = False
+                tracker = None
+                if misses == 4:
+                    print("no more glizzyt")
         # cache_boxes = boxes
         last_check = time.time()
         
-    # If we've gone too long without AWS confirming, stop tracking
-    if tracking and (time.time() - last_seen > max_no_refresh):
-        tracking = False
-        tracker = None
-        print("no more glizzyt")
+    # # If we've gone too long without AWS confirming, stop tracking
+    # if tracking and (time.time() - last_seen > max_no_refresh):
+    #     tracking = False
+    #     tracker = None
+    #     print("no more glizzyt")
     
     # display window
     cv2.imshow('Live webcam', frame)
