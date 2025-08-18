@@ -1,4 +1,6 @@
 ﻿# brainrotCamera
 
-Work in progress!!!
+Camera that detects objects 
+
+WIP
 
