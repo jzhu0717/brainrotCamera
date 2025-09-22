@@ -1,6 +1,7 @@
-﻿# brainrotCamera
+﻿# Glizzy Vision
 
-Camera that detects objects 
+Camera that detects glizzys and other awesome stuff!
 
 WIP
+
 
